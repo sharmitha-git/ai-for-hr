@@ -75,10 +75,43 @@ def supervisor_agent(state):
     )
     state["agent_outputs"] = {}
 
+    routing_metadata = route_plan.get(
+        "routing_metadata",
+        {},
+    )
+
     orchestration_log = state.get(
         "orchestration_log",
         []
     )
+    orchestration_log.append(
+        f"[Supervisor] detected_intent="
+        f"{routing_metadata.get('detected_intent', 'unknown')}"
+    )
+    orchestration_log.append(
+        f"[Supervisor] route_confidence="
+        f"{routing_metadata.get('confidence', 0)}"
+    )
+    orchestration_log.append(
+        f"[Supervisor] matched_signals="
+        f"{routing_metadata.get('matched_signals', [])}"
+    )
+    fallback_reason = routing_metadata.get(
+        "fallback_reason"
+    )
+    if fallback_reason:
+
+        orchestration_log.append(
+            f"[Supervisor] fallback_reason={fallback_reason}"
+        )
+    if routing_metadata.get(
+        "blocked_route"
+    ):
+
+        orchestration_log.append(
+            f"[Supervisor] policy_guard_blocked="
+            f"{routing_metadata.get('blocked_route')}"
+        )
     orchestration_log.append(
         f"[Supervisor] route_type="
         f"{route_plan['route_type']}"

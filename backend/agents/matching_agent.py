@@ -1,4 +1,7 @@
 from backend.llm import llm
+from backend.routing.copilot_router import (
+    is_policy_compliance_query,
+)
 from memory.conversation_memory import (
     MEMORY_SCOPE_CANDIDATE_MATCHING,
     add_memory,
@@ -13,6 +16,16 @@ from repositories.candidate_repository import (
 def matching_agent(state):
 
     query = state["query"]
+
+    if is_policy_compliance_query(
+        query
+    ):
+
+        state["response"] = (
+            "No grounded policy information found. "
+            "This query must be handled by the policy agent."
+        )
+        return state
 
     # Scoped string from supervisor; never mix with other route partitions.
     memory = state.get(

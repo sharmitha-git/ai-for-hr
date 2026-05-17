@@ -17,23 +17,26 @@ STRICT RULES:
 - Do not speculate or provide legal advice beyond the excerpts.
 """.strip()
 
-LOW_CONFIDENCE_MESSAGE = (
-    "Policy Information Unavailable\n\n"
-    "I could not find sufficient indexed policy evidence to answer "
-    "this question with confidence.\n\n"
+NO_GROUNDED_POLICY_MESSAGE = (
+    "No grounded policy information found.\n\n"
+    "Retrieval confidence is below the required threshold or "
+    "no relevant policy excerpts were returned.\n\n"
     "Next steps:\n"
     "- Upload or index governance PDFs in the Governance Console.\n"
     "- Rephrase your question with a specific policy topic "
-    "(e.g., data retention, GDPR, audit logging).\n"
+    "(e.g., data retention, GDPR, sensitive data protection).\n"
     "- Contact your compliance officer for authoritative guidance."
 )
 
 NO_CHUNKS_MESSAGE = (
-    "Policy Information Unavailable\n\n"
+    "No grounded policy information found.\n\n"
     "No policy documents are indexed yet. "
     "Load governance PDFs and run policy indexing before "
     "asking compliance questions."
 )
+
+# Backward-compatible alias for tests/imports.
+LOW_CONFIDENCE_MESSAGE = NO_GROUNDED_POLICY_MESSAGE
 
 
 def format_chunks_for_prompt(chunks: list[dict]) -> str:
@@ -63,7 +66,7 @@ def build_grounded_policy_response(
 
     if low_confidence or not chunks:
 
-        return LOW_CONFIDENCE_MESSAGE
+        return NO_GROUNDED_POLICY_MESSAGE
 
     if retrieval_confidence <= 0:
 

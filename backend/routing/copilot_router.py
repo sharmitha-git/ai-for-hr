@@ -15,38 +15,41 @@ JOB_KEYWORDS = [
     "roles available",
 ]
 
-POLICY_COMPLIANCE_KEYWORDS = [
+# Strict policy signals — queries matching these must NEVER hit recruiter/matching.
+POLICY_STRICT_KEYWORDS = [
     "privacy",
-    "gdpr",
-    "data retention",
-    "data protection",
-    "personal data",
     "pii",
-    "consent",
+    "sensitive data",
+    "sensitive information",
+    "personal data",
+    "gdpr",
     "compliance",
     "regulatory",
     "regulation",
-    "security policy",
+    "security",
     "information security",
     "cybersecurity",
+    "audit",
+    "retention",
+    "encryption",
+    "encrypted",
+    "policy",
+    "protected",
+    "data protection",
+    "consent",
     "explainability",
-    "explainable ai",
+    "explainable",
     "fairness",
     "fair hiring",
     "bias",
     "biased",
     "ethics",
     "ethical",
-    "governance policy",
-    "hiring policy",
-    "equal opportunity",
-    "eeo",
-    "retention policy",
     "lawful basis",
     "data subject",
 ]
 
-POLICY_COMPLIANCE_PHRASES = [
+POLICY_STRICT_PHRASES = [
     "what policy",
     "which policy",
     "policy applies",
@@ -54,9 +57,17 @@ POLICY_COMPLIANCE_PHRASES = [
     "policy says",
     "according to policy",
     "compliance requirement",
-    "compliance policy",
     "privacy policy",
     "governance policy",
+    "governance rules",
+    "show governance rules",
+    "how is candidate data",
+    "candidate data stored",
+    "data stored",
+    "data are stored",
+    "is sensitive data",
+    "are protected",
+    "data protected",
 ]
 
 GOVERNANCE_ANALYTICS_PHRASES = [
@@ -70,6 +81,11 @@ GOVERNANCE_ANALYTICS_PHRASES = [
     "hiring pipeline",
     "pipeline summary",
 ]
+
+RECRUITER_AGENTS = frozenset({
+    "recruiter",
+    "matching",
+})
 
 
 def _contains_any(lower_query, phrases):
@@ -96,56 +112,178 @@ def is_governance_analytics_query(lower_query):
     )
 
 
-def is_policy_compliance_query(lower_query):
+def _collect_policy_signals(lower_query):
     """
-    Privacy / governance / compliance topics must route to policy_agent.
+    Return matched policy/compliance signals for routing confidence.
     """
 
-    if is_governance_analytics_query(lower_query):
+    matched = []
 
-        return False
+    for keyword in POLICY_STRICT_KEYWORDS:
 
-    if _contains_any(
-        lower_query,
-        POLICY_COMPLIANCE_KEYWORDS,
-    ):
-        return True
+        if keyword in lower_query:
 
-    if _contains_any(
-        lower_query,
-        POLICY_COMPLIANCE_PHRASES,
-    ):
-        return True
+            matched.append(keyword)
 
-    if "audit" in lower_query:
-        return True
+    for phrase in POLICY_STRICT_PHRASES:
+
+        if phrase in lower_query:
+
+            matched.append(phrase)
 
     if (
-        "governance" in lower_query
+        "sensitive" in lower_query
+        and "data" in lower_query
+    ):
+        matched.append("sensitive+data")
+
+    if (
+        "protected" in lower_query
         and _contains_any(
             lower_query,
             [
-                "policy",
-                "privacy",
-                "compliance",
-                "gdpr",
-                "ethics",
-                "fairness",
-                "bias",
-                "security",
-                "retention",
+                "data",
+                "information",
+                "pii",
+                "personal",
             ],
         )
     ):
-        return True
+        matched.append("data_protected")
 
-    if (
-        "security" in lower_query
-        and "candidate" not in lower_query
-    ):
-        return True
+    if "governance" in lower_query:
 
-    return False
+        if not is_governance_analytics_query(lower_query):
+
+            matched.append("governance")
+
+    if "risk" in lower_query:
+
+        if not _contains_any(
+            lower_query,
+            [
+                "audit risk",
+                "risk summary",
+                "governance risks",
+            ],
+        ):
+            matched.append("risk")
+
+    return list(dict.fromkeys(matched))
+
+
+def classify_query_intent(query):
+    """
+    Classify copilot intent with confidence for orchestration logging.
+    """
+
+    lower_query = (query or "").lower().strip()
+
+    if not lower_query:
+
+        return {
+            "detected_intent": "unknown",
+            "confidence": 0.0,
+            "matched_signals": [],
+            "fallback_reason": "empty_query",
+            "force_policy_route": False,
+        }
+
+    if is_job_query(query):
+
+        return {
+            "detected_intent": "available_jobs",
+            "confidence": 0.95,
+            "matched_signals": ["job_keywords"],
+            "fallback_reason": None,
+            "force_policy_route": False,
+        }
+
+    if is_governance_analytics_query(lower_query):
+
+        return {
+            "detected_intent": "governance_analytics",
+            "confidence": 0.92,
+            "matched_signals": ["governance_analytics_phrase"],
+            "fallback_reason": None,
+            "force_policy_route": False,
+        }
+
+    policy_signals = _collect_policy_signals(
+        lower_query
+    )
+
+    if policy_signals:
+
+        confidence = min(
+            0.99,
+            0.55 + (0.08 * len(policy_signals)),
+        )
+
+        return {
+            "detected_intent": "policy_compliance",
+            "confidence": round(confidence, 3),
+            "matched_signals": policy_signals,
+            "fallback_reason": None,
+            "force_policy_route": True,
+        }
+
+    return {
+        "detected_intent": "candidate_search",
+        "confidence": 0.55,
+        "matched_signals": [],
+        "fallback_reason": "no_policy_signals_default_recruiter",
+        "force_policy_route": False,
+    }
+
+
+def is_policy_compliance_query(query):
+    """
+    Hard guard: privacy/governance/compliance topics route to policy_agent only.
+    """
+
+    return classify_query_intent(
+        query
+    )["force_policy_route"]
+
+
+def assert_not_recruiter_for_policy(
+    route_plan,
+    query,
+):
+    """
+    Hard safety fallback — policy-classified queries must never
+    reach recruiter_agent or matching_agent.
+    """
+
+    classification = classify_query_intent(
+        query
+    )
+
+    if not classification["force_policy_route"]:
+
+        return route_plan, classification
+
+    selected = route_plan.get(
+        "selected_agent",
+        "",
+    )
+
+    if selected in RECRUITER_AGENTS:
+
+        policy_plan = _policy_route_plan()
+        policy_plan["routing_metadata"] = classification
+        policy_plan["routing_metadata"]["fallback_reason"] = (
+            "policy_guard_blocked_recruiter_route"
+        )
+        policy_plan["routing_metadata"]["blocked_route"] = (
+            route_plan.get("route_type")
+        )
+
+        return policy_plan, classification
+
+    route_plan["routing_metadata"] = classification
+    return route_plan, classification
 
 
 def _policy_route_plan():
@@ -160,6 +298,7 @@ def _policy_route_plan():
         ],
         "retrieval_domain": "policy_rag",
         "tool_args": {},
+        "policy_route_locked": True,
     }
 
 
@@ -207,10 +346,11 @@ def _find_application_for_outreach(query, job_id=None):
 def build_route_plan(query, job_id=None):
 
     lower_query = (query or "").lower()
+    classification = classify_query_intent(query)
 
     if is_job_query(query):
 
-        return {
+        plan = {
             "route_type": "available_jobs",
             "selected_agent": "jobs",
             "selected_tool": "get_available_jobs_tool",
@@ -218,10 +358,14 @@ def build_route_plan(query, job_id=None):
             "retrieval_domain": "jobs_db",
             "tool_args": {},
         }
+        plan["routing_metadata"] = classification
+        return plan
 
-    if is_policy_compliance_query(lower_query):
+    if classification["force_policy_route"]:
 
-        return _policy_route_plan()
+        plan = _policy_route_plan()
+        plan["routing_metadata"] = classification
+        return plan
 
     if _contains_any(
         lower_query,
@@ -249,7 +393,7 @@ def build_route_plan(query, job_id=None):
             else "INTERVIEW_INVITE"
         )
 
-        return {
+        plan = {
             "route_type": "email_outreach",
             "selected_agent": "outreach",
             "selected_tool": "generate_email_draft_tool",
@@ -268,6 +412,12 @@ def build_route_plan(query, job_id=None):
                 "email_type": email_type,
             },
         }
+        plan, classification = assert_not_recruiter_for_policy(
+            plan,
+            query,
+        )
+        plan["routing_metadata"] = classification
+        return plan
 
     if _contains_any(
         lower_query,
@@ -280,7 +430,7 @@ def build_route_plan(query, job_id=None):
         ],
     ):
 
-        return {
+        plan = {
             "route_type": "shortlisted_candidates",
             "selected_agent": "recruiter",
             "selected_tool": "get_shortlisted_candidates_tool",
@@ -288,6 +438,12 @@ def build_route_plan(query, job_id=None):
             "retrieval_domain": "applications_db",
             "tool_args": {"job_id": job_id},
         }
+        plan, classification = assert_not_recruiter_for_policy(
+            plan,
+            query,
+        )
+        plan["routing_metadata"] = classification
+        return plan
 
     if _contains_any(
         lower_query,
@@ -298,7 +454,7 @@ def build_route_plan(query, job_id=None):
         ],
     ):
 
-        return {
+        plan = {
             "route_type": "pending_candidates",
             "selected_agent": "recruiter",
             "selected_tool": "get_pending_candidates_tool",
@@ -306,6 +462,12 @@ def build_route_plan(query, job_id=None):
             "retrieval_domain": "applications_db",
             "tool_args": {"job_id": job_id},
         }
+        plan, classification = assert_not_recruiter_for_policy(
+            plan,
+            query,
+        )
+        plan["routing_metadata"] = classification
+        return plan
 
     if _contains_any(
         lower_query,
@@ -317,7 +479,7 @@ def build_route_plan(query, job_id=None):
         ],
     ):
 
-        return {
+        plan = {
             "route_type": "rejected_reasoning",
             "selected_agent": "recruiter",
             "selected_tool": "get_rejected_candidates_tool",
@@ -330,6 +492,12 @@ def build_route_plan(query, job_id=None):
             "retrieval_domain": "applications_db",
             "tool_args": {"job_id": job_id},
         }
+        plan, classification = assert_not_recruiter_for_policy(
+            plan,
+            query,
+        )
+        plan["routing_metadata"] = classification
+        return plan
 
     if _contains_any(
         lower_query,
@@ -340,7 +508,7 @@ def build_route_plan(query, job_id=None):
         ],
     ):
 
-        return {
+        plan = {
             "route_type": "pipeline_summary",
             "selected_agent": "governance",
             "selected_tool": "governance_statistics",
@@ -352,6 +520,8 @@ def build_route_plan(query, job_id=None):
             "retrieval_domain": "governance_analytics",
             "tool_args": {},
         }
+        plan["routing_metadata"] = classification
+        return plan
 
     if _contains_any(
         lower_query,
@@ -374,7 +544,7 @@ def build_route_plan(query, job_id=None):
             else "get_governance_risks"
         )
 
-        return {
+        plan = {
             "route_type": "governance_risks",
             "selected_agent": "governance",
             "selected_tool": selected_tool,
@@ -382,8 +552,10 @@ def build_route_plan(query, job_id=None):
             "retrieval_domain": "governance_analytics",
             "tool_args": {},
         }
+        plan["routing_metadata"] = classification
+        return plan
 
-    return {
+    plan = {
         "route_type": "candidate_search",
         "selected_agent": "recruiter",
         "selected_tool": "semantic_candidate_search",
@@ -391,3 +563,10 @@ def build_route_plan(query, job_id=None):
         "retrieval_domain": "candidate_vector_search",
         "tool_args": {"job_id": job_id},
     }
+
+    plan, classification = assert_not_recruiter_for_policy(
+        plan,
+        query,
+    )
+    plan["routing_metadata"] = classification
+    return plan

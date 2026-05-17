@@ -1,7 +1,13 @@
 from backend.llm import llm
+from backend.routing.copilot_router import (
+    is_policy_compliance_query,
+)
 from memory.conversation_memory import (
     add_memory,
     resolve_memory_scope
+)
+from services.policy_response_service import (
+    NO_GROUNDED_POLICY_MESSAGE,
 )
 
 
@@ -571,6 +577,29 @@ def _format_pipeline_summary(agent_outputs):
 
 
 def _format_candidate_search(state):
+
+    query = state.get(
+        "query",
+        "",
+    )
+
+    # Hallucination guard — never generate candidate advice for policy queries.
+    if is_policy_compliance_query(
+        query
+    ):
+
+        policy_block = state.get(
+            "agent_outputs",
+            {},
+        ).get(
+            "policy",
+            {},
+        )
+
+        return policy_block.get(
+            "grounded_response",
+            NO_GROUNDED_POLICY_MESSAGE,
+        )
 
     candidates = state.get(
         "candidates",
