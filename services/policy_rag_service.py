@@ -2,7 +2,7 @@ from langchain_community.document_loaders import (
     PyPDFLoader
 )
 
-from langchain.text_splitter import (
+from langchain_text_splitters import (
     RecursiveCharacterTextSplitter
 )
 
@@ -11,15 +11,29 @@ from langchain_openai import (
 )
 
 from langchain_community.vectorstores import (
-    Chroma
+    FAISS
 )
 
 import os
 
 
 POLICY_DB_PATH = (
-    "memory/policy_chroma"
+    "memory/policy_faiss"
 )
+
+RETRIEVAL_SOURCE = "policy_faiss"
+
+# L2 distance from FAISS; lower is a closer match.
+LOW_CONFIDENCE_DISTANCE = 1.15
+
+
+def _distance_to_confidence(distance: float) -> float:
+    """Map vector distance to a 0-1 confidence score."""
+
+    return max(
+        0.0,
+        min(1.0, 1.0 - (float(distance) / 1.5)),
+    )
 
 
 def ingest_policy_documents():
@@ -52,7 +66,15 @@ def ingest_policy_documents():
 
             docs = loader.load()
 
+            for doc in docs:
+
+                doc.metadata["source_file"] = file
+
             documents.extend(docs)
+
+    if not documents:
+
+        return 0
 
     splitter = (
         RecursiveCharacterTextSplitter(
@@ -67,56 +89,132 @@ def ingest_policy_documents():
 
     embeddings = OpenAIEmbeddings()
 
-    vectordb = Chroma.from_documents(
+    vectordb = FAISS.from_documents(
 
         chunks,
-
-        embedding=embeddings,
-
-        persist_directory=
-            POLICY_DB_PATH
+        embedding=embeddings
     )
 
-    vectordb.persist()
+    os.makedirs(
+        POLICY_DB_PATH,
+        exist_ok=True
+    )
+
+    vectordb.save_local(
+        POLICY_DB_PATH
+    )
 
     return len(chunks)
 
 
-def search_policy_documents(query):
+def search_policy_documents(
+    query,
+    k=3,
+):
+    """
+    Retrieve policy chunks with similarity scores and confidence metadata.
+    """
+
+    empty_payload = {
+        "results": [],
+        "chunks": [],
+        "retrieval_source": RETRIEVAL_SOURCE,
+        "retrieval_confidence": 0.0,
+        "low_confidence": True,
+        "policy_chunks_used": [],
+    }
 
     if not os.path.isdir(
         POLICY_DB_PATH
     ):
 
-        return []
+        return empty_payload
 
     embeddings = OpenAIEmbeddings()
 
-    vectordb = Chroma(
-
-        persist_directory=
-            POLICY_DB_PATH,
-
-        embedding_function=
-            embeddings
-    )
-
     try:
 
-        docs = vectordb.similarity_search(
+        vectordb = FAISS.load_local(
+
+            POLICY_DB_PATH,
+
+            embeddings,
+
+            allow_dangerous_deserialization=True
+        )
+
+        scored_docs = vectordb.similarity_search_with_score(
 
             query,
 
-            k=3
+            k=k
         )
 
     except Exception:
 
-        return []
+        return empty_payload
 
-    return [
+    chunks = []
+    legacy_results = []
 
-        d.page_content
+    for doc, distance in scored_docs:
 
-        for d in docs
-    ]
+        confidence = _distance_to_confidence(
+            distance
+        )
+        source_file = doc.metadata.get(
+            "source_file",
+            "policy_pdf"
+        )
+
+        chunk = {
+            "text": doc.page_content,
+            "source": source_file,
+            "distance": float(distance),
+            "confidence": confidence,
+        }
+        chunks.append(chunk)
+
+        legacy_results.append(
+            f"Source: {source_file} | "
+            f"{doc.page_content}"
+        )
+
+    if not chunks:
+
+        return empty_payload
+
+    top_confidence = max(
+        c["confidence"] for c in chunks
+    )
+    low_confidence = (
+        top_confidence < _distance_to_confidence(
+            LOW_CONFIDENCE_DISTANCE
+        )
+        or chunks[0]["distance"] > LOW_CONFIDENCE_DISTANCE
+    )
+
+    return {
+        "results": legacy_results,
+        "chunks": chunks,
+        "retrieval_source": RETRIEVAL_SOURCE,
+        "retrieval_confidence": round(
+            top_confidence,
+            3,
+        ),
+        "low_confidence": low_confidence,
+        "policy_chunks_used": [
+            {
+                "source": c["source"],
+                "confidence": c["confidence"],
+            }
+            for c in chunks
+        ],
+    }
+
+
+def search_policy_documents_legacy(query):
+    """Backward-compatible string list return."""
+
+    payload = search_policy_documents(query)
+    return payload.get("results", [])

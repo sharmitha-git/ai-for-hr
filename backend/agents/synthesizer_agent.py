@@ -320,29 +320,47 @@ def _format_governance_risks(agent_outputs):
 
 def _format_policy(agent_outputs):
 
-    results = (
-        agent_outputs.get(
-            "policy",
-            {}
-        ).get(
-            "data",
-            {}
-        ).get(
-            "results",
-            []
+    policy_block = agent_outputs.get(
+        "policy",
+        {},
+    )
+
+    grounded = policy_block.get(
+        "grounded_response"
+    )
+
+    if grounded:
+
+        return grounded
+
+    data = policy_block.get(
+        "data",
+        {},
+    )
+
+    if data.get("safety_refusal"):
+
+        return policy_block.get(
+            "grounded_response",
+            "This request cannot be completed under "
+            "HireGuard governance policy.",
         )
+
+    results = data.get(
+        "results",
+        [],
     )
 
     if not results:
 
         return (
-            "Applicable Policy Guidance:\n\n"
+            "Policy Information Unavailable\n\n"
             "No indexed policy snippets were found. "
             "Upload governance PDFs and run policy indexing."
         )
 
     lines = [
-        "Applicable Policy Guidance:\n"
+        "Applicable Policy Guidance (retrieved excerpts only):\n"
     ]
 
     for index, snippet in enumerate(
@@ -354,6 +372,20 @@ def _format_policy(agent_outputs):
             f"{index}. {snippet}"
         )
         lines.append("")
+
+    confidence = data.get(
+        "retrieval_confidence",
+        0,
+    )
+    source = data.get(
+        "retrieval_source",
+        "policy_faiss",
+    )
+
+    lines.append(
+        f"\n---\nRetrieval source: {source} | "
+        f"Confidence: {confidence}"
+    )
 
     return "\n".join(lines).strip()
 
@@ -658,8 +690,9 @@ def synthesizer_agent(state):
             )
         )
 
-    elif route_type == (
-        "policy_lookup"
+    elif route_type in (
+        "policy_lookup",
+        "policy_compliance",
     ):
 
         response_text = _format_policy(

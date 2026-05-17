@@ -22,6 +22,7 @@ _ROUTE_TYPE_TO_SCOPE = {
     "pending_candidates": MEMORY_SCOPE_CANDIDATE_MATCHING,
     "rejected_reasoning": MEMORY_SCOPE_CANDIDATE_MATCHING,
     "policy_lookup": MEMORY_SCOPE_GOVERNANCE,
+    "policy_compliance": MEMORY_SCOPE_GOVERNANCE,
     "pipeline_summary": MEMORY_SCOPE_GOVERNANCE,
     "governance_risks": MEMORY_SCOPE_GOVERNANCE,
     "email_outreach": MEMORY_SCOPE_OUTREACH,

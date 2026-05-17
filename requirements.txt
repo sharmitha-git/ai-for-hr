@@ -26,3 +26,4 @@ spacy
 python-multipart
 requests
 plotly
+pytest

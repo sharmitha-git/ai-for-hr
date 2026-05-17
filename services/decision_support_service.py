@@ -158,8 +158,13 @@ class DecisionSupportService:
             else "Hiring review policy human approval"
         )
 
-        policy_evidence = search_policy_documents(
+        policy_payload = search_policy_documents(
             policy_query
+        )
+        policy_evidence = (
+            policy_payload.get("results", [])
+            if isinstance(policy_payload, dict)
+            else policy_payload
         )
 
         risks = []
