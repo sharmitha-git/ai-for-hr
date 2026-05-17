@@ -1,4 +1,9 @@
 from backend.llm import llm
+from memory.conversation_memory import (
+    MEMORY_SCOPE_CANDIDATE_MATCHING,
+    add_memory,
+    resolve_memory_scope
+)
 
 from repositories.candidate_repository import (
     CandidateRepository
@@ -9,9 +14,16 @@ def matching_agent(state):
 
     query = state["query"]
 
+    # Scoped string from supervisor; never mix with other route partitions.
     memory = state.get(
         "memory",
-        []
+        ""
+    )
+    memory_scope = state.get(
+        "memory_scope",
+        MEMORY_SCOPE_CANDIDATE_MATCHING
+    ) or resolve_memory_scope(
+        state.get("route_type")
     )
 
     candidates = (
@@ -56,12 +68,14 @@ and explain why they match.
         response.content
     )
 
-    memory.append(
-        f"User: {query}"
-    )
-
-    memory.append(
-        f"Assistant: {response_text}"
+    add_memory(
+        state.get(
+            "session_id",
+            "default_user"
+        ),
+        "assistant",
+        response_text,
+        memory_scope
     )
 
     state["memory"] = memory

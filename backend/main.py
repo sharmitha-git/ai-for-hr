@@ -1,3 +1,5 @@
+import time
+
 from fastapi import FastAPI
 
 from sqlalchemy import text
@@ -16,8 +18,11 @@ import backend.tools.email_tools
 import backend.tools.governance_explainer_tool
 import backend.tools.governance_analytics_tool
 import backend.tools.recruitment_analytics_tool
-import backend.tools.policy_tools
-
+import backend.tools.policy_tool
+import backend.tools.feedback_tool
+import backend.tools.audit_tool
+import backend.tools.hiring_data_tools
+import backend.tools.outreach_tools
 
 app = FastAPI(
     title="HireGuard AI"
@@ -35,13 +40,106 @@ def initialize_database():
 
         schema = f.read()
 
-    with engine.connect() as conn:
+    last_error = None
 
-        conn.execute(
-            text(schema)
+    migration_statements = [
+        """
+        ALTER TABLE applications
+        ALTER COLUMN governance_flag
+        TYPE TEXT
+        USING governance_flag::text
+        """,
+        """
+        ALTER TABLE audit_logs
+        ADD COLUMN IF NOT EXISTS application_id INTEGER
+        """,
+        """
+        ALTER TABLE audit_logs
+        ADD COLUMN IF NOT EXISTS action_type TEXT
+        """,
+        """
+        ALTER TABLE audit_logs
+        ADD COLUMN IF NOT EXISTS action_details TEXT
+        """,
+        """
+        UPDATE audit_logs
+        SET action_type = COALESCE(action_type, event_type)
+        WHERE action_type IS NULL
+        """,
+        """
+        UPDATE audit_logs
+        SET action_details = COALESCE(action_details, event_details)
+        WHERE action_details IS NULL
+        """,
+        """
+        ALTER TABLE feedback
+        ADD COLUMN IF NOT EXISTS session_id TEXT
+        """,
+        """
+        CREATE TABLE IF NOT EXISTS email_drafts (
+            id SERIAL PRIMARY KEY,
+            candidate_id INTEGER REFERENCES candidates(id),
+            job_id INTEGER REFERENCES jobs(id),
+            subject TEXT,
+            body TEXT,
+            status TEXT DEFAULT 'DRAFT',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
+        """,
+        """
+        ALTER TABLE feedback
+        ADD COLUMN IF NOT EXISTS ai_response TEXT
+        """,
+        """
+        UPDATE feedback
+        SET ai_response = COALESCE(ai_response, response)
+        WHERE ai_response IS NULL
+        """,
+        """
+        ALTER TABLE conversation_memory
+        ADD COLUMN IF NOT EXISTS message TEXT
+        """,
+        """
+        UPDATE conversation_memory
+        SET message = COALESCE(message, content)
+        WHERE message IS NULL
+        """,
+        """
+        ALTER TABLE conversation_memory
+        ADD COLUMN IF NOT EXISTS memory_scope TEXT
+        """
+    ]
 
-        conn.commit()
+    for _ in range(10):
+
+        try:
+
+            with engine.begin() as conn:
+
+                conn.execute(
+                    text(schema)
+                )
+
+                for statement in migration_statements:
+
+                    try:
+
+                        conn.execute(
+                            text(statement)
+                        )
+
+                    except Exception:
+
+                        continue
+
+            return
+
+        except Exception as exc:
+
+            last_error = exc
+            time.sleep(3)
+
+    raise last_error
 
 
 initialize_database()
