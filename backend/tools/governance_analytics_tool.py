@@ -2,12 +2,8 @@ from backend.tools.tool_registry import (
     register_tool
 )
 
-from database.connection import (
-    SessionLocal
-)
-
-from backend.entities import (
-    Application
+from repositories.analytics_repository import (
+    AnalyticsRepository
 )
 
 
@@ -16,62 +12,24 @@ from backend.entities import (
 )
 def governance_statistics():
 
-    db = SessionLocal()
-
-    applications = db.query(
-        Application
-    ).all()
-
-    total = len(applications)
-
-    risky = [
-
-        a for a in applications
-
-        if a.governance_flag == "REVIEW"
-    ]
-
-    approved = [
-
-        a for a in applications
-
-        if a.governance_flag == "APPROVED"
-    ]
-
-    rejected = [
-
-        a for a in applications
-
-        if a.governance_flag == "REJECTED"
-    ]
-
-    avg_score = 0
-
-    if applications:
-
-        avg_score = sum(
-
-            a.final_score
-            for a in applications
-
-        ) / total
-
-    db.close()
+    # Reuse dashboard aggregation queries to avoid duplicated SQL logic.
+    kpis = AnalyticsRepository.get_kpi_summary()
 
     return {
-
         "total_applications":
-            total,
-
-        "risky_count":
-            len(risky),
-
-        "approved_count":
-            len(approved),
-
+            kpis.get("total_applications", 0),
+        "review_count":
+            kpis.get("governance_review_count", 0),
+        "safe_count":
+            kpis.get("governance_safe_count", 0),
+        "escalate_count":
+            kpis.get("governance_escalation_count", 0),
+        "shortlisted_count":
+            kpis.get("shortlisted_candidates", 0),
         "rejected_count":
-            len(rejected),
-
+            kpis.get("rejected_candidates", 0),
+        "under_review_count":
+            kpis.get("pending_candidates", 0),
         "average_score":
-            round(avg_score, 2)
+            kpis.get("average_candidate_score", 0),
     }

@@ -25,6 +25,7 @@ page = st.sidebar.radio(
     [
         "Hiring Workspace",
         "Governance Console",
+        "HR Analytics Dashboard",
         "AI Hiring Copilot"
     ]
 )
@@ -673,6 +674,21 @@ if page == "Governance Console":
         st.error(
             audit_response.text
         )
+
+
+# =====================================
+# HR Analytics Dashboard
+# =====================================
+
+elif page == "HR Analytics Dashboard":
+
+    from analytics_dashboard import (
+        render_analytics_dashboard
+    )
+
+    render_analytics_dashboard(
+        API_BASE_URL
+    )
 
 
 # =====================================

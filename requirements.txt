@@ -4,13 +4,18 @@ streamlit
 openai
 langchain
 langgraph
+langchain-community
+langchain-openai
+langchain-text-splitters
 chromadb
+faiss-cpu
 psycopg2-binary
 sqlalchemy
 pydantic
 python-dotenv
 pandas
 numpy
+scikit-learn
 tiktoken
 sentence-transformers
 pypdf
@@ -20,6 +25,4 @@ presidio-anonymizer
 spacy
 python-multipart
 requests
-langchain-openai
-pypdf
-langchain-community
+plotly

@@ -11,6 +11,9 @@ from database.connection import (
 from backend.admin_routes import (
     router as admin_router
 )
+from backend.analytics_routes import (
+    router as analytics_router
+)
 import backend.tools.recruiter_tools
 import backend.tools.governance_tools
 import backend.tools.operations_tools
@@ -29,6 +32,7 @@ app = FastAPI(
 )
 
 app.include_router(admin_router)
+app.include_router(analytics_router)
 
 
 def initialize_database():
