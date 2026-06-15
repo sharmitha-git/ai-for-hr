@@ -2,6 +2,9 @@ from langchain_core.messages import (
     HumanMessage
 )
 
+from backend.routing.copilot_router import (
+    is_policy_compliance_query,
+)
 from backend.tools.semantic_search_tool import (
     semantic_candidate_search
 )
@@ -21,6 +24,17 @@ from backend.llm import llm
 def recruiter_agent(state):
 
     query = state["query"]
+
+    if is_policy_compliance_query(
+        query
+    ):
+
+        state["response"] = (
+            "No grounded policy information found. "
+            "This query was blocked from recruiter flow."
+        )
+        state["message"] = state["response"]
+        return state
 
     lower_query = query.lower()
 
